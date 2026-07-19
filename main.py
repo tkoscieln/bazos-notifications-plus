@@ -1,78 +1,88 @@
-import functions_framework
-import re
-import requests
-from bs4 import BeautifulSoup
 import os
+import json
+import urllib.request
+import urllib.parse
+from imap_tools import MailBox, AND
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# Configuration - Loaded from environment variables safely
+IMAP_SERVER = "imap.gmail.com"
+EMAIL_USER = os.getenv("EMAIL_USER", "your-burner-account@gmail.com")
+EMAIL_PASSWORD = os.getenv(
+    "EMAIL_PASSWORD", "abcd-efgh-ijkl-mnop"
+)  # 16-char App Password
+
+TELEGRAM_BOT_TOKEN = os.getenv(
+    "TELEGRAM_BOT_TOKEN", "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+)
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "987654321")
 
 
-def get_bazos_image(url):
+def send_telegram_notification(text: str):
+    """Sends a formatted message to your Telegram channel/chat."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False,
+    }
+
     try:
-        # User-Agent makes the request look like a standard web browser instead of a script
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # Bazos uses classes like 'ilustrace' or 'flimg' for the main listing images
-            img_tag = soup.find("img", class_="ilustrace") or soup.find(
-                "img", class_="flimg"
-            )
-
-            if img_tag and img_tag.get("src"):
-                return img_tag["src"]
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return response.read()
     except Exception as e:
-        print(f"Failed to scrape image: {e}")
-    return None
+        print(f"Failed to dispatch Telegram alert: {e}")
 
 
-def send_telegram_notification(text, photo_url=None):
-    if photo_url:
-        # Telegram natively accepts a web URL for the photo parameter
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "photo": photo_url,
-            "caption": text,
-            "parse_mode": "Markdown",
-        }
-    else:
-        # Fallback to standard text message if no image was found
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
+def parse_bazos_email(subject: str, html_body: str):
+    """
+    Parses incoming Bazoš search agent listings.
+    Customize the text-extraction logic below to fit your needs.
+    """
+    print(f"Extracting updates from email: {subject}")
 
-    requests.post(url, json=payload)
+    # Simple placeholder parser structure:
+    # 1. Grab raw links or prices out of html_body (using regex or simple splits)
+    # 2. Compile into a human-readable notification text
+
+    notification_msg = (
+        f"<b>🔔 New Bazoš Alert!</b>\n"
+        f"Subject: {subject}\n\n"
+        f"Check your burner inbox or click below to view listings directly."
+    )
+
+    # Send it down the line
+    send_telegram_notification(notification_msg)
 
 
-@functions_framework.http
-def handle_email_webhook(request):
-    request_json = request.get_json(silent=True)
+def check_for_alerts():
+    print("Poller active: checking burner mailbox for unread alerts...")
+    try:
+        with MailBox(IMAP_SERVER).login(
+            EMAIL_USER, EMAIL_PASSWORD, initial_folder="INBOX"
+        ) as mailbox:
+            # Fetches unread, sets them read instantly so next run skips them
+            for msg in mailbox.fetch(criteria=AND(seen=False), mark_seen=True):
+                print(f"Processing unread item: {msg.subject}")
 
-    if request_json and "text" in request_json:
-        email_body = request_json["text"]
+                body_content = msg.text if msg.text else msg.html
+                parse_bazos_email(msg.subject, body_content)
 
-        # Pull out hyperlinks from the email body
-        links = re.findall(r"(https?://[^\s]+)", email_body)
-        bazos_links = [l for l in links if "bazos.cz" in l]
+    except Exception as e:
+        print(f"Mailbox sync execution error: {e}")
 
-        if bazos_links:
-            target_url = bazos_links[0]
 
-            # 1. Grab the image URL from the live listing page
-            img_url = get_bazos_image(target_url)
+# Entry points
+def lambda_handler(event, context):
+    """AWS Lambda trigger binding hook"""
+    check_for_alerts()
+    return {"status": "complete"}
 
-            # 2. Build a clean markdown message format
-            message_text = (
-                f"🔥 *Nový inzerát na Bazoši!*\n\n[Otevřít inzerát]({target_url})"
-            )
 
-            # 3. Dispatch to Telegram
-            send_telegram_notification(message_text, img_url)
-            return "Notification sent successfully", 200
-
-    return "No valid link or body payload found", 200
+if __name__ == "__main__":
+    # Local terminal testing runtime execution
+    check_for_alerts()
