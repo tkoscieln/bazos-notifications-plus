@@ -1,12 +1,12 @@
-import os
 import json
+import os
 import re
-import requests
-import urllib.request
 import urllib.parse
+import urllib.request
 
+import requests
 from bs4 import BeautifulSoup
-from imap_tools import MailBox, AND, MailMessageFlags
+from imap_tools import AND, MailBox, MailMessageFlags
 
 # Configuration - Loaded from environment variables safely
 IMAP_SERVER = os.getenv("IMAP_SERVER", "imap.gmail.com")
@@ -34,7 +34,9 @@ def get_bazos_ad_image(ad_url: str) -> str | None:
                 return og_image["content"]
 
             # Fallback: Find first thumbnail image in the main content gallery
-            first_img = soup.find("img", class_="flim") or soup.find("img", class_="barvacka")
+            first_img = soup.find("img", class_="flim") or soup.find(
+                "img", class_="barvacka"
+            )
             if first_img and first_img.get("src"):
                 return first_img["src"]
     except Exception as e:
@@ -45,7 +47,6 @@ def get_bazos_ad_image(ad_url: str) -> str | None:
 
 def send_telegram_notification(listings: list[dict[str, str]]) -> None:
     """Sends a formatted message to your Telegram channel/chat."""
-    # TODO: Add fallback to /sendMessage
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     fallback_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
@@ -69,10 +70,9 @@ def send_telegram_notification(listings: list[dict[str, str]]) -> None:
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": notification_msg,
                 "parse_mode": "HTML",
-                "disable_web_page_preview": False
+                "disable_web_page_preview": False,
             }
             url = fallback_url
-
 
         try:
             data = json.dumps(payload).encode("utf-8")
@@ -83,6 +83,8 @@ def send_telegram_notification(listings: list[dict[str, str]]) -> None:
                 return response.read()
         except Exception as e:
             print(f"Failed to dispatch Telegram alert: {e}")
+
+    return None
 
 
 def parse_bazos_email(html_body: str) -> list[dict[str, str]]:
@@ -104,17 +106,20 @@ def parse_bazos_email(html_body: str) -> list[dict[str, str]]:
             parent_text = link.parent.get_text(strip=True)
 
             # Look for typical Bazoš price patterns (numbers followed by ,-)
-            price_match = re.search(r'(\d[\d\s]*,-)', parent_text)
+            price_match = re.search(r"(\d[\d\s]*,-)", parent_text)
             price = price_match.group(1).strip() if price_match else "N/A"
 
-            listings.append({
-                "title": title,
-                "url": url,
-                "price": price,
-                "photo": get_bazos_ad_image(url)
-            })
+            listings.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "price": price,
+                    "photo": get_bazos_ad_image(url),
+                }
+            )
 
     return listings
+
 
 def check_for_alerts():
     print("Poller active: checking burner mailbox for unread alerts...")
@@ -126,7 +131,9 @@ def check_for_alerts():
         ) as mailbox:
             # Fetch unread from Bazoš and process
             emails = []
-            for msg in mailbox.fetch(criteria=AND(seen=False, from_=BAZOS_MAIL), mark_seen=False):
+            for msg in mailbox.fetch(
+                criteria=AND(seen=False, from_=BAZOS_MAIL), mark_seen=False
+            ):
                 print(f"Processing unread email: {msg.subject}")
                 emails.append(msg)
             return emails
@@ -134,9 +141,10 @@ def check_for_alerts():
     except Exception as e:
         print(f"Mailbox sync execution error: {e}")
 
+
 def main():
     if not (EMAIL_USER or EMAIL_PASSWORD or TELEGRAM_CHAT_ID or TELEGRAM_BOT_TOKEN):
-        raise EnvironmentError("Missing required environment variables!")
+        raise OSError("Missing required environment variables!")
     emails = check_for_alerts()
     if emails is None:
         print("No new emails found!")
@@ -153,6 +161,7 @@ def main():
             with MailBox(IMAP_SERVER).login(EMAIL_USER, EMAIL_PASSWORD) as mailbox:
                 mailbox.flag(uids_to_mark, MailMessageFlags.SEEN, True)
                 print(f"Marked {number_of_emails} email(s) as read.")
+
 
 # Entry points
 def lambda_handler(event, context):

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "beautifulsoup4>=4.15.0",
+    "black>=26.5.1",
     "functions-framework>=3.10.2",
     "imap-tools>=1.13.0",
     "requests>=2.34.2",
