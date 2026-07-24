@@ -1,12 +1,11 @@
 import json
 import os
 import re
-import urllib.parse
-import urllib.request
 
 import requests
 from bs4 import BeautifulSoup
 from imap_tools import AND, MailBox, MailMessageFlags
+from requests import HTTPError
 
 # Configuration - Loaded from environment variables safely
 IMAP_SERVER = os.getenv("IMAP_SERVER", "imap.gmail.com")
@@ -75,14 +74,12 @@ def send_telegram_notification(listings: list[dict[str, str]]) -> None:
             url = fallback_url
 
         try:
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url, data=data, headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                return response.read()
-        except Exception as e:
-            print(f"Failed to dispatch Telegram alert: {e}")
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            print(f"Message '{listing['title']}' sent to Telegram!")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to send telegram notification: {e}")
 
     return None
 
@@ -151,9 +148,13 @@ def main():
     else:
         number_of_emails = len(emails)
         print(f"Extracting listings from {number_of_emails} found emails!")
+        i = 1
         for email in emails:
+            print(f"Parsing email: {i}")
             listings = parse_bazos_email(email.html)
+            print(f"Sending notifications for email: {i}")
             send_telegram_notification(listings)
+            i += 1
 
         # Finally mark the processed mails as read - keeps the entire notification check atomic
         uids_to_mark = [msg.uid for msg in emails]
